@@ -9,6 +9,7 @@ import java.io.IOException;
 import java.net.URL;
 import java.nio.charset.Charset;
 import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -27,6 +28,8 @@ import edu.illinois.starts.util.ChecksumUtil;
 import edu.illinois.starts.util.Logger;
 import edu.illinois.starts.util.Pair;
 import org.ekstazi.util.Types;
+
+import static edu.illinois.starts.smethods.MethodLevelStaticDepsBuilder.*;
 
 /**
  * Utility methods for dealing with the .zlc format.
@@ -85,6 +88,7 @@ public class ZLCHelper implements StartsConstants {
                                      String artifactsDir, Set<String> unreached, boolean useThirdParty,
                                      ZLCFormat format) {
         // TODO: Optimize this by only recomputing the checksum+tests for changed classes and newly added tests
+        System.out.println("UPDATING ZLC data...");
         long start = System.currentTimeMillis();
         LOGGER.log(Level.FINE, "ZLC format: " + format.toString());
         ZLCFileContent zlc = createZLCData(testDeps, loader, useThirdParty, format);
@@ -99,15 +103,61 @@ public class ZLCHelper implements StartsConstants {
             boolean useJars,
             ZLCFormat format
     ) {
+         System.out.println("Creating ZLC data...");
         long start = System.currentTimeMillis();
         List<ZLCData> zlcData = new ArrayList<>();
         Set<String> deps = new HashSet<>();
         ChecksumUtil checksumUtil = new ChecksumUtil(true);
+
+        // Get method level dependencies
+        HashSet classPaths = null;
+        try {
+            classPaths = new HashSet<>(Files.walk(Paths.get("."))
+                    .filter(Files::isRegularFile)
+                    .filter(f -> (f.toString().endsWith(".class") && f.toString().contains("target")))
+                    .map(f -> f.normalize().toAbsolutePath().toString())
+                    .collect(Collectors.toList()));
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+
+        findMethodsinvoked(classPaths);
+
+        Set<String> testClasses = new HashSet<>();
+        for (String method : methodName2MethodNames.keySet()){
+            String className = method.split("#|\\$")[0];
+            if (className.contains("Test")){
+                testClasses.add(className);
+            }
+        }
+        testDeps.clear();
+        testDeps = getDepsSingleThread(testClasses);
+
+        // change to method-level here
+        // testDeps = test2methods;
         // merge all the deps for all tests into a single set
         for (String test : testDeps.keySet()) {
             deps.addAll(testDeps.get(test));
         }
         ArrayList<String> testList = new ArrayList<>(testDeps.keySet());  // all tests
+
+//         System.out.println("test2methods");
+//         System.out.println(test2methods);
+//        System.out.println("methodName2MethodNames");
+//        System.out.println(methodName2MethodNames);
+//        System.out.println("hierarchy_parents");
+//        System.out.println(hierarchy_parents);
+//        System.out.println("hierarchy_children");
+//        System.out.println(hierarchy_children);
+//        System.out.println("class2ContainedMethodNames");
+//        System.out.println(class2ContainedMethodNames);
+
+        System.out.println("TestDeps:");
+        System.out.println(testDeps);
+        System.out.println("DEPS:");
+        System.out.println(deps);
+        System.out.println("TESTLIST:");
+        System.out.println(testList);
 
         // for each dep, find it's url, checksum and tests that depend on it
         for (String dep : deps) {
@@ -149,16 +199,53 @@ public class ZLCHelper implements StartsConstants {
         }
         long end = System.currentTimeMillis();
         LOGGER.log(Level.FINEST, "[TIME]CREATING ZLC FILE: " + (end - start) + MILLISECOND);
+        System.out.println("ZLC DATA");
+        System.out.println(zlcData);
+        System.out.println("testList AFTER");
+        System.out.println(testList);
         return new ZLCFileContent(testList, zlcData, format);
     }
 
     public static Pair<Set<String>, Set<String>> getChangedData(String artifactsDir, boolean cleanBytes) {
+        HashSet classPaths = null;
+        try {
+            classPaths = new HashSet<>(Files.walk(Paths.get("."))
+                    .filter(Files::isRegularFile)
+                    .filter(f -> (f.toString().endsWith(".class") && f.toString().contains("target")))
+                    .map(f -> f.normalize().toAbsolutePath().toString())
+                    .collect(Collectors.toList()));
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+
+        // newClassesPaths = new HashSet<>(Files.walk(Paths.get("."))
+        //         .filter(Files::isRegularFile)
+        //         .filter(f -> (f.toString().endsWith(".class") && f.toString().contains("target")))
+        //         .map(f -> f.normalize().toAbsolutePath().toString())
+        //         .collect(Collectors.toList()));
+
+        findMethodsinvoked(classPaths);
+
+        // System.out.println("test2methods");
+        // System.out.println(test2methods);
+//        System.out.println("methodName2MethodNames");
+//        System.out.println(methodName2MethodNames);
+//        System.out.println("hierarchy_parents");
+//        System.out.println(hierarchy_parents);
+//        System.out.println("hierarchy_children");
+//        System.out.println(hierarchy_children);
+//        System.out.println("class2ContainedMethodNames");
+//        System.out.println(class2ContainedMethodNames);
+
+
         long start = System.currentTimeMillis();
         File zlc = new File(artifactsDir, zlcFile);
         if (!zlc.exists()) {
             LOGGER.log(Level.FINEST, NOEXISTING_ZLCFILE_FIRST_RUN);
             return null;
         }
+        System.out.println("WE ARE HERE");
+
         Set<String> changedClasses = new HashSet<>();
         Set<String> nonAffected = new HashSet<>();
         Set<String> affected = new HashSet<>();
@@ -195,8 +282,10 @@ public class ZLCHelper implements StartsConstants {
                 }
                 testsList = new ArrayList<>(zlcLines.subList(1, testsCount + 1));
             }
-
             for (int i = testsCount + 1; i < zlcLines.size(); i++) {
+//                if (i < 5) {
+//                    System.out.println(zlcLines.get(i));
+//                }
                 String line = zlcLines.get(i);
                 String[] parts = line.split(space);
                 String stringURL = parts[0];
@@ -231,6 +320,10 @@ public class ZLCHelper implements StartsConstants {
         nonAffected.removeAll(affected);
         long end = System.currentTimeMillis();
         LOGGER.log(Level.FINEST, TIME_COMPUTING_NON_AFFECTED + (end - start) + MILLISECOND);
+        System.out.println(nonAffected);
+        System.out.println(changedClasses);
+        System.out.println("WE ARE END");
+        System.out.println("WE ARE END");
         return new Pair<>(nonAffected, changedClasses);
     }
 

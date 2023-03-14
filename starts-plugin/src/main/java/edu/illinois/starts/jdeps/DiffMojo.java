@@ -114,6 +114,12 @@ public class DiffMojo extends BaseMojo implements StartsConstants {
                     computeUnreached, TransitiveClosureOptions.TRANSITIVE);
             Map<String, Set<String>> testDeps = result.getTestDeps();
             graph = result.getGraph();
+
+//            System.out.println("GRAPH");
+//            System.out.println(graph);
+//            System.out.println("TEST DEPTS");
+//            System.out.println(testDeps);
+
             Set<String> unreached = computeUnreached ? result.getUnreachedDeps() : new HashSet<String>();
             if (depFormat == DependencyFormat.ZLC) {
                 ZLCHelper zlcHelper = new ZLCHelper();
