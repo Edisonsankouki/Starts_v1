@@ -29,6 +29,9 @@ import org.apache.maven.plugins.annotations.Parameter;
 import org.apache.maven.plugins.annotations.ResolutionScope;
 import org.apache.maven.surefire.booter.Classpath;
 
+import static edu.illinois.starts.smethods.MethodLevelStaticDepsBuilder.main;
+import static edu.illinois.starts.smethods.MethodLevelStaticDepsBuilder.test2methods;
+
 /**
  * Finds types that have changed since the last time they were analyzed.
  */
@@ -115,11 +118,21 @@ public class DiffMojo extends BaseMojo implements StartsConstants {
             Map<String, Set<String>> testDeps = result.getTestDeps();
             graph = result.getGraph();
 
+            // ADDED BY MAHDI
+            try {
+                main();
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+//            System.out.println("METHOD DEPS");
+//            System.out.println(test2methods);
+
 //            System.out.println("GRAPH");
 //            System.out.println(graph);
 //            System.out.println("TEST DEPTS");
 //            System.out.println(testDeps);
 
+            testDeps = test2methods;
             Set<String> unreached = computeUnreached ? result.getUnreachedDeps() : new HashSet<String>();
             if (depFormat == DependencyFormat.ZLC) {
                 ZLCHelper zlcHelper = new ZLCHelper();

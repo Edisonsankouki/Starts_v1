@@ -4,8 +4,8 @@
 
 package edu.illinois.starts.helpers;
 
-import java.io.File;
-import java.io.IOException;
+import java.io.*;
+import java.net.MalformedURLException;
 import java.net.URL;
 import java.nio.charset.Charset;
 import java.nio.file.Files;
@@ -27,7 +27,16 @@ import edu.illinois.starts.data.ZLCFormat;
 import edu.illinois.starts.util.ChecksumUtil;
 import edu.illinois.starts.util.Logger;
 import edu.illinois.starts.util.Pair;
+
 import org.ekstazi.util.Types;
+import org.objectweb.asm.ClassReader;
+import org.objectweb.asm.Label;
+import org.objectweb.asm.Opcodes;
+import org.objectweb.asm.tree.ClassNode;
+import org.objectweb.asm.tree.MethodNode;
+import org.objectweb.asm.util.Printer;
+import org.objectweb.asm.util.Textifier;
+import org.objectweb.asm.util.TraceMethodVisitor;
 
 import static edu.illinois.starts.smethods.MethodLevelStaticDepsBuilder.*;
 
@@ -109,40 +118,20 @@ public class ZLCHelper implements StartsConstants {
         Set<String> deps = new HashSet<>();
         ChecksumUtil checksumUtil = new ChecksumUtil(true);
 
-        // Get method level dependencies
-        HashSet classPaths = null;
-        try {
-            classPaths = new HashSet<>(Files.walk(Paths.get("."))
-                    .filter(Files::isRegularFile)
-                    .filter(f -> (f.toString().endsWith(".class") && f.toString().contains("target")))
-                    .map(f -> f.normalize().toAbsolutePath().toString())
-                    .collect(Collectors.toList()));
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        }
 
-        findMethodsinvoked(classPaths);
 
-        Set<String> testClasses = new HashSet<>();
-        for (String method : methodName2MethodNames.keySet()){
-            String className = method.split("#|\\$")[0];
-            if (className.contains("Test")){
-                testClasses.add(className);
-            }
-        }
-        testDeps.clear();
-        testDeps = getDepsSingleThread(testClasses);
 
-        // change to method-level here
-        // testDeps = test2methods;
         // merge all the deps for all tests into a single set
         for (String test : testDeps.keySet()) {
             deps.addAll(testDeps.get(test));
         }
         ArrayList<String> testList = new ArrayList<>(testDeps.keySet());  // all tests
 
-//         System.out.println("test2methods");
-//         System.out.println(test2methods);
+
+//         System.out.println("TEST2METHODS");
+//         System.out.println(testDeps);
+//        System.out.println("DEPS");
+//        System.out.println(deps);
 //        System.out.println("methodName2MethodNames");
 //        System.out.println(methodName2MethodNames);
 //        System.out.println("hierarchy_parents");
@@ -152,20 +141,60 @@ public class ZLCHelper implements StartsConstants {
 //        System.out.println("class2ContainedMethodNames");
 //        System.out.println(class2ContainedMethodNames);
 
-        System.out.println("TestDeps:");
-        System.out.println(testDeps);
-        System.out.println("DEPS:");
-        System.out.println(deps);
-        System.out.println("TESTLIST:");
-        System.out.println(testList);
+//        System.out.println("TestDeps:");
+//        System.out.println(testDeps);
+//        System.out.println("DEPS:");
+//        System.out.println(deps);
+//        System.out.println("TESTLIST:");
+//        System.out.println(testList);
 
         // for each dep, find it's url, checksum and tests that depend on it
         for (String dep : deps) {
-            String klas = ChecksumUtil.toClassName(dep);
+            // Here we have the method dependencies after new edit. So we get their classes, then the method again from the InputStream
+            // May be we can get the method directly.
+            String klas = ChecksumUtil.toClassName(dep.split("#")[0]);
+            String methodName = dep.split("#")[1].replace("()", "");
+            if (methodName.startsWith("<")) continue;  // skip constructors and initializers
+
+//            System.out.println("OUR METHOD: " + methodName);
+
+            // Method url
+            // contentprinter for method -> String methodContent
+            // checksum for methodContent
             if (Types.isIgnorableInternalName(klas)) {
                 continue;
             }
+
             URL url = loader.getResource(klas);
+            String path = url.getPath();
+//            System.out.println("URL: " + path);
+            ClassNode node = new ClassNode(Opcodes.ASM5);
+            ClassReader reader = null;
+            try {
+                reader = new ClassReader(new FileInputStream(path));
+            } catch (IOException e) {
+                System.out.println("[ERROR] reading class: " + klas);
+                continue;
+            }
+
+            String methodChecksum = null;
+            reader.accept(node, ClassReader.SKIP_DEBUG);
+            List<MethodNode> methods = node.methods;
+            for (MethodNode method : methods) {
+                // Skip constructors and initializers
+//                System.out.println("METHOD in loop: " + method.name);
+                if (!method.name.equals(methodName)) continue;
+                System.out.println(method.name + ":" + method.desc);
+                String methodContent = printMethodContent(method);
+                try {
+                    methodChecksum = ChecksumUtil.computeMethodChecksum(methodContent);
+                } catch (IOException e) {
+                    throw new RuntimeException(e);
+                }
+//                System.out.println("METHOD CHECKSUM! ->   " + methodChecksum);
+            }
+
+
             if (url == null) {
                 continue;
             }
@@ -173,7 +202,16 @@ public class ZLCHelper implements StartsConstants {
             if (ChecksumUtil.isWellKnownUrl(extForm) || (!useJars && extForm.startsWith("jar:"))) {
                 continue;
             }
-            String checksum = checksumUtil.computeSingleCheckSum(url);
+//            String checksum = checksumUtil.computeSingleCheckSum(url);
+            String checksum = methodChecksum;
+            String classURL = url.toString();
+            URL newUrl = null;
+            try {
+                newUrl = new URL(classURL + "#" + methodName);
+            } catch (MalformedURLException e) {
+                throw new RuntimeException(e);
+            }
+//            System.out.println("NEW URL: " + newUrl);
             switch (format) {
                 case PLAIN_TEXT:
                     Set<String> testsStr = new HashSet<>();
@@ -182,7 +220,7 @@ public class ZLCHelper implements StartsConstants {
                             testsStr.add(test);
                         }
                     }
-                    zlcData.add(new ZLCData(url, checksum, format, testsStr, null));
+                    zlcData.add(new ZLCData(newUrl, checksum, format, testsStr, null));
                     break;
                 case INDEXED:
                     Set<Integer> testsIdx = new HashSet<>();
@@ -191,7 +229,7 @@ public class ZLCHelper implements StartsConstants {
                             testsIdx.add(i);
                         }
                     }
-                    zlcData.add(new ZLCData(url, checksum, format, null, testsIdx));
+                    zlcData.add(new ZLCData(newUrl, checksum, format, null, testsIdx));
                     break;
                 default:
                     throw new RuntimeException("Unexpected ZLCFormat");
@@ -199,33 +237,14 @@ public class ZLCHelper implements StartsConstants {
         }
         long end = System.currentTimeMillis();
         LOGGER.log(Level.FINEST, "[TIME]CREATING ZLC FILE: " + (end - start) + MILLISECOND);
-        System.out.println("ZLC DATA");
-        System.out.println(zlcData);
-        System.out.println("testList AFTER");
-        System.out.println(testList);
+//        System.out.println("ZLC DATA");
+//        System.out.println(zlcData);
+//        System.out.println("testList AFTER");
+//        System.out.println(testList);
         return new ZLCFileContent(testList, zlcData, format);
     }
 
     public static Pair<Set<String>, Set<String>> getChangedData(String artifactsDir, boolean cleanBytes) {
-        HashSet classPaths = null;
-        try {
-            classPaths = new HashSet<>(Files.walk(Paths.get("."))
-                    .filter(Files::isRegularFile)
-                    .filter(f -> (f.toString().endsWith(".class") && f.toString().contains("target")))
-                    .map(f -> f.normalize().toAbsolutePath().toString())
-                    .collect(Collectors.toList()));
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        }
-
-        // newClassesPaths = new HashSet<>(Files.walk(Paths.get("."))
-        //         .filter(Files::isRegularFile)
-        //         .filter(f -> (f.toString().endsWith(".class") && f.toString().contains("target")))
-        //         .map(f -> f.normalize().toAbsolutePath().toString())
-        //         .collect(Collectors.toList()));
-
-        findMethodsinvoked(classPaths);
-
         // System.out.println("test2methods");
         // System.out.println(test2methods);
 //        System.out.println("methodName2MethodNames");
@@ -288,7 +307,11 @@ public class ZLCHelper implements StartsConstants {
 //                }
                 String line = zlcLines.get(i);
                 String[] parts = line.split(space);
+                // classURL#methodname
                 String stringURL = parts[0];
+                String classURL = stringURL.split("#")[0];
+                String methodName = stringURL.split("#")[1];
+
                 String oldCheckSum = parts[1];
                 Set<String> tests;
                 if (format == ZLCFormat.INDEXED) {
@@ -298,8 +321,40 @@ public class ZLCHelper implements StartsConstants {
                     tests = parts.length == 3 ? fromCSV(parts[2]) : new HashSet<>();
                 }
                 nonAffected.addAll(tests);
-                URL url = new URL(stringURL);
-                String newCheckSum = checksumUtil.computeSingleCheckSum(url);
+//                URL url = new URL(stringURL);
+                URL url = new URL(classURL);
+
+
+//                URL url = loader.getResource(klas);
+                String path = url.getPath();
+                ClassNode node = new ClassNode(Opcodes.ASM5);
+                ClassReader reader = null;
+                try {
+                    reader = new ClassReader(new FileInputStream(path));
+                } catch (IOException e) {
+                    throw new IOException(e);
+                }
+
+                String newMethodChecksum = null;
+                reader.accept(node, ClassReader.SKIP_DEBUG);
+                List<MethodNode> methods = node.methods;
+                for (MethodNode method : methods) {
+                    // Skip constructors and initializers
+                    if (!method.name.equals(methodName)) continue;
+                    System.out.println(method.name + ":" + method.desc);
+                    String methodContent = printMethodContent(method);
+                    try {
+                        newMethodChecksum = ChecksumUtil.computeMethodChecksum(methodContent);
+                    } catch (IOException e) {
+                        throw new RuntimeException(e);
+                    }
+                    System.out.println("NEW METHOD CHECKSUM! ->   " + newMethodChecksum);
+                    System.out.println("OLD METHOD CHECKSUM! ->   " + oldCheckSum);
+                }
+
+//                String newCheckSum = checksumUtil.computeSingleCheckSum(url);
+                String newCheckSum = newMethodChecksum;
+
                 if (!newCheckSum.equals(oldCheckSum)) {
                     affected.addAll(tests);
                     changedClasses.add(stringURL);
@@ -322,8 +377,10 @@ public class ZLCHelper implements StartsConstants {
         LOGGER.log(Level.FINEST, TIME_COMPUTING_NON_AFFECTED + (end - start) + MILLISECOND);
         System.out.println(nonAffected);
         System.out.println(changedClasses);
-        System.out.println("WE ARE END");
-        System.out.println("WE ARE END");
+        // TODO: change all '/' in the nonAffected to '.'
+        for (String s : nonAffected) {
+            System.out.println(s.replace('/', '.'));
+        }
         return new Pair<>(nonAffected, changedClasses);
     }
 
@@ -356,5 +413,23 @@ public class ZLCHelper implements StartsConstants {
         long end = System.currentTimeMillis();
         LOGGER.log(Level.FINEST, "[TIME]COMPUTING EXISTING CLASSES: " + (end - start) + MILLISECOND);
         return existingClasses;
+    }
+
+
+    public static String printMethodContent(MethodNode node) {
+        Printer printer = new Textifier(Opcodes.ASM5) {
+            @Override
+            public void visitLineNumber(int line, Label start) {
+            }
+        };
+        TraceMethodVisitor methodPrinter = new TraceMethodVisitor(printer);
+        node.accept(methodPrinter);
+        StringWriter sw = new StringWriter();
+        printer.print(new PrintWriter(sw));
+        printer.getText().clear();
+        // include the access code in case of access code changes
+        String methodContent = node.access + "\n"+ node.signature+"\n"+ sw.toString();
+//        LOGGER.debug("Method " + node.name + " content: " + methodContent);
+        return methodContent;
     }
 }
