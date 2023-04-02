@@ -33,6 +33,8 @@ public class SelectMojo extends DiffMojo implements StartsConstants {
     @Parameter(property = "updateSelectChecksums", defaultValue = FALSE)
     private boolean updateSelectChecksums;
 
+   
+
     private Logger logger;
 
     public void execute() throws MojoExecutionException {

@@ -41,6 +41,10 @@ public class RunMojo extends DiffMojo implements StartsConstants {
     @Parameter(property = "updateRunChecksums", defaultValue = TRUE)
     protected boolean updateRunChecksums;
 
+
+    @Parameter(property = "methodmode", defaultValue = FALSE)
+    private Boolean methodmode;
+
     /**
      * Set this option to "true" to run all tests, not just the affected ones. This option is useful
      * in cases where one is interested to measure the time to run all tests, while at the

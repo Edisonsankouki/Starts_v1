@@ -109,6 +109,7 @@ public class ImpactedMojo extends DiffMojo implements StartsConstants {
     }
 
     public void execute() throws MojoExecutionException {
+        System.out.println("run impact");
         Logger.getGlobal().setLoggingLevel(Level.parse(loggingLevel));
         logger = Logger.getGlobal();
         Pair<Set<String>, Set<String>> data = computeChangeData(false);
