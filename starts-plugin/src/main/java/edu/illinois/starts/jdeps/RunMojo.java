@@ -135,6 +135,67 @@ public class RunMojo extends DiffMojo implements StartsConstants {
         }
     }
 
+
+
+     public void executeM() throws MojoExecutionException {
+         Logger.getGlobal().setLoggingLevel(Level.parse(loggingLevel));
+         logger = Logger.getGlobal();
+         long start = System.currentTimeMillis();
+         setIncludesExcludes();
+         runM();
+         Set<String> allTests = new HashSet<>(getTestClasses(CHECK_IF_ALL_AFFECTED));
+         if (writeNonAffected || logger.getLoggingLevel().intValue() <= Level.FINEST.intValue()) {
+             Writer.writeToFile(nonAffectedTests, "non-affected-tests", getArtifactsDir());
+         }
+         if (allTests.equals(nonAffectedTests)) {
+             logger.log(Level.INFO, STARS_RUN_STARS);
+             logger.log(Level.INFO, NO_TESTS_ARE_SELECTED_TO_RUN);
+         }
+         long end = System.currentTimeMillis();
+         System.setProperty(PROFILE_END_OF_RUN_MOJO, Long.toString(end));
+         logger.log(Level.FINE, PROFILE_RUN_MOJO_TOTAL + Writer.millsToSeconds(end - start));
+     }
+ 
+     protected void runM() throws MojoExecutionException {
+         String cpString = Writer.pathToString(getSureFireClassPath().getClassPath());
+         List<String> sfPathElements = getCleanClassPath(cpString);
+         if (!isSameClassPath(sfPathElements) || !hasSameJarChecksum(sfPathElements)) {
+             // Force retestAll because classpath changed since last run
+             // don't compute changed and non-affected classes
+             dynamicallyUpdateExcludes(new ArrayList<String>());
+             // Make nonAffected empty so dependencies can be updated
+             nonAffectedTests = new HashSet<>();
+             Writer.writeClassPath(cpString, artifactsDir);
+             Writer.writeJarChecksums(sfPathElements, artifactsDir, jarCheckSums);
+         } else if (retestAll) {
+             // Force retestAll but compute changes and affected tests
+             setChangedAndNonaffected();
+             dynamicallyUpdateExcludes(new ArrayList<String>());
+         } else {
+             setChangedAndNonaffected();
+             List<String> excludePaths = Writer.fqnsToExcludePath(nonAffectedTests);
+             dynamicallyUpdateExcludes(excludePaths);
+         }
+         long startUpdateTime = System.currentTimeMillis();
+         if (updateRunChecksums) {
+             updateForNextRunMethod(nonAffectedTests);
+         }
+         long endUpdateTime = System.currentTimeMillis();
+         logger.log(Level.FINE, PROFILE_STARTS_MOJO_UPDATE_TIME
+                 + Writer.millsToSeconds(endUpdateTime - startUpdateTime));
+     }
+
+
+     protected void setChangedAndNonaffectedM() throws MojoExecutionException {
+         nonAffectedTests = new HashSet<>();
+         changedClasses = new HashSet<>();
+         Pair<Set<String>, Set<String>> data = computeMethodChangeData(writeChangedClasses);
+         nonAffectedTests = data == null ? new HashSet<String>() : data.getKey();
+         changedClasses  = data == null ? new HashSet<String>() : data.getValue();
+     }
+
+
+
     protected void setChangedAndNonaffected() throws MojoExecutionException {
         nonAffectedTests = new HashSet<>();
         changedClasses = new HashSet<>();
