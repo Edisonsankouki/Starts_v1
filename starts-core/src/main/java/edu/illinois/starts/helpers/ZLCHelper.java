@@ -25,7 +25,8 @@
  import java.io.StringWriter;
  import java.net.MalformedURLException;
  import java.io.PrintWriter;
- 
+ import java.io.FileWriter;
+
  
  import edu.illinois.starts.constants.StartsConstants;
  import edu.illinois.starts.data.ZLCData;
@@ -166,6 +167,7 @@
          throw new RuntimeException(e);
      }
 
+     writeMapToCSV(methodName2MethodNames, artifactsDir+"/methodgraph.csv");
 
         
      }
@@ -190,26 +192,7 @@
      }
      ArrayList<String> testList = new ArrayList<>(testDeps.keySet());  // all tests
  
- 
- //System.out.println("TEST2METHODS");
- //System.out.println(testDeps);
- //        System.out.println("DEPS");
- //        System.out.println(deps);
- //        System.out.println("methodName2MethodNames");
- //        System.out.println(methodName2MethodNames);
- //        System.out.println("hierarchy_parents");
- //        System.out.println(hierarchy_parents);
- //        System.out.println("hierarchy_children");
- //        System.out.println(hierarchy_children);
- //        System.out.println("class2ContainedMethodNames");
- //        System.out.println(class2ContainedMethodNames);
- 
- //        System.out.println("TestDeps:");
- //        System.out.println(testDeps);
- //        System.out.println("DEPS:");
- //        System.out.println(deps);
- //        System.out.println("TESTLIST:");
- //        System.out.println(testList);
+
  
      // for each dep, find it's url, checksum and tests that depend on it
      for (String dep : deps) {
@@ -366,16 +349,7 @@
          return new ZLCFileContent(testList, zlcData, format);
      }
      public static Pair<Set<String>, Set<String>> getMChangedData(String artifactsDir, boolean cleanBytes) {
-        // System.out.println("test2methods");
-        // System.out.println(test2methods);
-//        System.out.println("methodName2MethodNames");
-//        System.out.println(methodName2MethodNames);
-//        System.out.println("hierarchy_parents");
-//        System.out.println(hierarchy_parents);
-//        System.out.println("hierarchy_children");
-//        System.out.println(hierarchy_children);
-//        System.out.println("class2ContainedMethodNames");
-//        System.out.println(class2ContainedMethodNames);
+
         
         try {
             main(artifactsDir);
@@ -488,12 +462,7 @@ methodgraph = newMethodgraph;
                     } catch (IOException e) {
                         throw new RuntimeException(e);
                     }
-                    /* 
-                    System.out.println(classURL + "#"+methodName);
-                    System.out.println("NEW METHOD CHECKSUM! ->   " + newMethodChecksum);
-                    System.out.println(classURL + "#"+methodName);
-                    System.out.println("OLD METHOD CHECKSUM! ->   " + oldCheckSum);
-                    */
+                  
                 }
 
 //                String newCheckSum = checksumUtil.computeSingleCheckSum(url);
@@ -527,6 +496,8 @@ methodgraph = newMethodgraph;
         LOGGER.log(Level.FINEST, TIME_COMPUTING_NON_AFFECTED + (end - start) + MILLISECOND);
         //System.out.println("Non affected: " + nonAffected);
         System.out.println("Affected methods: "+ changedClasses);
+        System.out.println("Affected tests: " + affected);
+        System.out.println("Non affected tests: " + nonAffected);
         // TODO: change all '/' in the nonAffected to '.'
         /*for (String s : nonAffected) {
             System.out.println(s.replace('/', '.'));
@@ -705,6 +676,22 @@ methodgraph = newMethodgraph;
         return methodContent;
     }
 
+    private static void writeMapToCSV(Map<String, Set<String>> methodName2MethodNames, String filename) {
+        try (FileWriter writer = new FileWriter(filename)) {
+            writer.write("Method Name,Method Names\n"); // header row
+            
+            for (String methodName : methodName2MethodNames.keySet()) {
+                StringBuilder methodNamesString = new StringBuilder();
+                Set<String> methodNames = methodName2MethodNames.get(methodName);
+                for (String method : methodNames) {
+                    methodNamesString.append(method).append(";"); // separate method names with semicolon
+                }
+                writer.write(methodName + "," + methodNamesString.toString() + "\n");
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
 
     private static Set<String> dfsMethodGraph(String startMethod, Map<String, Set<String>> methodGraph) {
         Set<String> visited = new HashSet<>();
